@@ -47,6 +47,11 @@ python pdfprocessor.py Compressed Output --patch-version-folder
 ```
 Filename matching strips `_compress`/`_compressed` suffix automatically.
 
+Add `--today-dates` to stamp the current date and time as the PDF's Created and Modified dates (visible in Adobe Acrobat under File → Properties → Description):
+```powershell
+python pdfprocessor.py Compressed Output --patch-version-folder --today-dates
+```
+
 ### Step 3b: Apply KWSP Metadata Instead
 Overrides the producer with `KWSP` and patches the version — use if you want KWSP branding:
 ```powershell
@@ -99,6 +104,7 @@ Notes
 - **Producer cache:** `--unlock-folder` saves `.producer_cache.json`. `--patch-version-folder` reads it to restore the original producer even after iLovePDF overwrites it.
 - **PDF Version:** The tool ensures files present as PDF 1.4 by disabling object streams (a PDF 1.5 feature).
 - **Minimal metadata patching:** Both `--patch-version-folder` and `--patch-metadata-folder` apply changes without recompressing, preserving iLovePDF compression gains.
+- **Date stamping:** `--today-dates` writes the current local date and time (including timezone) to both the PDF DocInfo and XMP metadata streams so that Adobe Acrobat displays the correct Created/Modified dates.
 - **iLovePDF free tier:** 250 tasks/month. Each file = 1 task. See https://developer.ilovepdf.com/pricing for details.
 - **Encryption:** Single-file unlock mode supports password-protected PDFs. Batch unlock (`--unlock-folder`) assumes no password; use single-file mode for encrypted batches.
 - **.gitignore:** PDF files, `.env`, and `.producer_cache.json` are excluded from version control.

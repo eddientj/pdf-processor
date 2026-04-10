@@ -41,6 +41,7 @@ def main():
     parser.add_argument("--compress-folder", action="store_true", help="Compress all PDFs via iLovePDF API")
     parser.add_argument("--patch-metadata-folder", action="store_true", help="Apply KWSP producer to all PDFs in input folder")
     parser.add_argument("--patch-version-folder", action="store_true", help="Patch version to 1.4, restore original producer for all PDFs in input folder")
+    parser.add_argument("--today-dates", action="store_true", help="Set CreationDate and ModDate to today's date (use with --patch-version-folder)")
     parser.add_argument("--flush", action="store_true", help="Clear Output, 'To Compress', and 'Compressed' folders")
     args = parser.parse_args()
 
@@ -69,7 +70,7 @@ def main():
             count = patch_metadata_folder(args.input, args.output, password=args.user_password)
             print(f"[SUMMARY] Patched metadata for {count} PDFs from {args.input} to {args.output}")
         elif args.patch_version_folder:
-            count = patch_version_folder(args.input, args.output, password=args.user_password)
+            count = patch_version_folder(args.input, args.output, password=args.user_password, today_dates=args.today_dates)
             print(f"[SUMMARY] Patched version for {count} PDFs from {args.input} to {args.output}")
         else:
             process_pdf(

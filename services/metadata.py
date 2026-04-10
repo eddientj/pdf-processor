@@ -1,10 +1,33 @@
 import os
 import sys
 import glob
+from datetime import datetime
 
 from pikepdf import Pdf, String
 
 from .utils import get_size_mb, ensure_pdf_header, load_producer_cache
+
+
+def _pdf_date_string(dt: datetime) -> str:
+    """Return a PDF docinfo date string (D:YYYYMMDDHHmmSS+HH'mm') for the given datetime."""
+    offset = dt.utcoffset()
+    if offset is None:
+        return f"D:{dt.strftime('%Y%m%d%H%M%S')}"
+    total = int(offset.total_seconds())
+    sign = '+' if total >= 0 else '-'
+    h, m = divmod(abs(total), 3600)
+    return f"D:{dt.strftime('%Y%m%d%H%M%S')}{sign}{h:02d}'{m // 60:02d}'"
+
+
+def _xmp_date_string(dt: datetime) -> str:
+    """Return an ISO-8601 XMP date string (YYYY-MM-DDTHH:mm:ss+HH:mm) for the given datetime."""
+    offset = dt.utcoffset()
+    if offset is None:
+        return dt.strftime('%Y-%m-%dT%H:%M:%S')
+    total = int(offset.total_seconds())
+    sign = '+' if total >= 0 else '-'
+    h, m = divmod(abs(total), 3600)
+    return f"{dt.strftime('%Y-%m-%dT%H:%M:%S')}{sign}{h:02d}:{m // 60:02d}"
 
 
 def apply_properties(input_path: str, output_path: str, password: str = "") -> None:
@@ -68,7 +91,7 @@ def patch_metadata_only(input_pdf: str, output_pdf: str, password: str = "") -> 
     print(f"       File Size : {final_size:.2f} MB")
 
 
-def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", original_producer: str = None) -> None:
+def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", original_producer: str = None, today_dates: bool = False) -> None:
     """Patch PDF version to 1.4. Restores original_producer if provided, else keeps current. No recompression."""
     if not os.path.isfile(input_pdf):
         raise FileNotFoundError(f"Input file not found: {input_pdf}")
@@ -76,6 +99,7 @@ def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", orig
     print(f"[INFO] Patching version only (keep producer): {input_pdf}")
 
     with Pdf.open(input_pdf, password=password) as pdf:
+        # Resolve producer from cache arg, then docinfo, then XMP — in that priority order
         producer = original_producer
         if not producer:
             if "/Producer" in pdf.docinfo:
@@ -87,13 +111,33 @@ def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", orig
                 except Exception:
                     pass
 
+        # Resolve current local datetime strings before entering the XMP block
+        today_pdf_date = None
+        today_xmp_date = None
+        now = None
+        if today_dates:
+            now = datetime.now().astimezone()  # local time with local timezone offset
+            today_pdf_date = _pdf_date_string(now)
+            today_xmp_date = _xmp_date_string(now)
+
+        # Single XMP write — avoids two open_metadata calls overwriting each other
+        try:
+            with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
+                if producer:
+                    meta["{http://ns.adobe.com/pdf/1.3/}Producer"] = producer
+                if today_xmp_date:
+                    meta["{http://ns.adobe.com/xap/1.0/}CreateDate"] = today_xmp_date
+                    meta["{http://ns.adobe.com/xap/1.0/}ModifyDate"] = today_xmp_date
+        except Exception as xmp_err:
+            print(f"[WARNING] XMP metadata write failed: {xmp_err}", file=sys.stderr)
+
+        # Docinfo (classic PDF Info dict) — always set alongside XMP
         if producer:
-            try:
-                with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
-                    meta["pdf:Producer"] = producer
-            except Exception:
-                pass
             pdf.docinfo["/Producer"] = String(producer)
+        if today_pdf_date:
+            pdf.docinfo["/CreationDate"] = String(today_pdf_date)
+            pdf.docinfo["/ModDate"] = String(today_pdf_date)
+            print(f"[INFO] Dates set to: {now.strftime('%Y-%m-%d %H:%M:%S %z')}")
 
         pdf.save(output_pdf, encryption=None)
 
@@ -132,7 +176,7 @@ def patch_metadata_folder(input_dir: str, output_dir: str, password: str = "") -
     return count
 
 
-def patch_version_folder(input_dir: str, output_dir: str, password: str = "") -> int:
+def patch_version_folder(input_dir: str, output_dir: str, password: str = "", today_dates: bool = False) -> int:
     """Patch PDF version to 1.4 for all PDFs, restoring original producer from cache."""
     if not os.path.isdir(input_dir):
         print(f"[ERROR] Input directory not found: {input_dir}", file=sys.stderr)
@@ -160,7 +204,7 @@ def patch_version_folder(input_dir: str, output_dir: str, password: str = "") ->
             if original_producer:
                 print(f"[INFO] Restoring producer from cache: '{original_producer}' for {basename}")
 
-            patch_version_only(pdf_path, output_path, password=password, original_producer=original_producer)
+            patch_version_only(pdf_path, output_path, password=password, original_producer=original_producer, today_dates=today_dates)
             count += 1
         except Exception as e:
             print(f"[ERROR] Failed to patch {pdf_path}: {e}", file=sys.stderr)
