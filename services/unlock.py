@@ -4,7 +4,7 @@ import glob
 
 from pikepdf import Pdf
 
-from .utils import get_size_mb, ensure_pdf_header, load_producer_cache, save_producer_cache, PRODUCER_CACHE_FILE
+from .utils import get_size_mb, ensure_pdf_header, load_metadata_cache, save_producer_cache, PRODUCER_CACHE_FILE
 
 
 def unlock_pdf(input_path: str, output_path: str, password: str = "") -> None:
@@ -58,7 +58,10 @@ def unlock_folder(input_dir: str, output_dir: str, password: str = "") -> int:
         print(f"[WARNING] No PDF files found in {input_dir}")
         return 0
 
-    cache = load_producer_cache()
+    # Keys we handle separately — don't snapshot into the preserved-fields dict
+    _SKIP_DOCINFO = {"/Producer", "/CreationDate", "/ModDate"}
+
+    cache = load_metadata_cache()
     count = 0
     for pdf_path in sorted(pdf_files):
         try:
@@ -76,9 +79,19 @@ def unlock_folder(input_dir: str, output_dir: str, password: str = "") -> int:
                             producer = meta.get("pdf:Producer")
                     except Exception:
                         pass
-                if producer:
-                    stem = os.path.splitext(basename)[0]
-                    cache[stem] = producer
+
+                # Snapshot every docinfo field except the ones we manage elsewhere
+                extra_docinfo = {}
+                for key in src.docinfo.keys():
+                    str_key = str(key)
+                    if str_key not in _SKIP_DOCINFO:
+                        try:
+                            extra_docinfo[str_key] = str(src.docinfo[key])
+                        except Exception:
+                            pass
+
+                stem = os.path.splitext(basename)[0]
+                cache[stem] = {"producer": producer or "", "docinfo": extra_docinfo}
 
             unlock_pdf(pdf_path, output_path, password=password)
             count += 1

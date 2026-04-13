@@ -49,5 +49,6 @@ Compressed/
 # Secrets
 .env
 
-# Producer cache
+# Producer / metadata cache
 .producer_cache.json
+.temp_file_cache
