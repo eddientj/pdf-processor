@@ -26,30 +26,18 @@ def ensure_pdf_header(path: str, version: str = "1.4") -> None:
 
 
 def load_metadata_cache() -> dict:
-    """Load the metadata cache.
+    """Load the metadata cache, returning a dict mapping file stem → producer string.
 
-    Returns a dict mapping file stem → entry dict with keys:
-      ``producer``  – str (may be empty)
-      ``docinfo``   – dict of extra PDF Info dict fields (keys include leading slash)
-
-    Handles the old format where values were plain producer strings.
+    Handles the old format where values were dicts with a ``producer`` key.
     """
     if os.path.isfile(PRODUCER_CACHE_FILE):
         with open(PRODUCER_CACHE_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        migrated = {}
-        for stem, value in raw.items():
-            if isinstance(value, str):
-                migrated[stem] = {"producer": value, "docinfo": {}}
-            else:
-                migrated[stem] = value
-        return migrated
+        return {
+            stem: (value if isinstance(value, str) else value.get("producer", ""))
+            for stem, value in raw.items()
+        }
     return {}
-
-
-def load_producer_cache() -> dict:
-    """Backward-compat alias — returns the metadata cache."""
-    return load_metadata_cache()
 
 
 def save_producer_cache(cache: dict) -> None:

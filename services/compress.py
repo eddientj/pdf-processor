@@ -8,6 +8,13 @@ from pikepdf import Pdf, Name, String
 from PIL import Image
 
 from .utils import get_size_mb, ensure_pdf_header
+from .constants import (
+    COMPRESS_PDF_VERSION,
+    COMPRESS_TARGET_MAX_MB,
+    COMPRESS_IMAGE_QUALITIES,
+    COMPRESS_IMAGE_SCALES,
+    PRODUCER_NAME,
+)
 
 
 def compress_images(pdf: Pdf, quality: int = 60, scale: float = 1.0) -> None:
@@ -43,7 +50,7 @@ def process_pdf(
     output_path: str,
     user_password: str = "",
     owner_password: str = "",
-    target_max_mb: float = 14.0,
+    target_max_mb: float = COMPRESS_TARGET_MAX_MB,
 ) -> None:
     """Full single-file pipeline: set version + KWSP metadata, compress, optionally encrypt."""
     if not os.path.isfile(input_path):
@@ -61,10 +68,10 @@ def process_pdf(
     )
 
     with Pdf.open(input_path) as pdf:
-        pdf.pdf_version = "1.4"
+        pdf.pdf_version = COMPRESS_PDF_VERSION
         with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
-            meta["pdf:Producer"] = "KWSP"
-        pdf.docinfo["/Producer"] = String("KWSP")
+            meta["pdf:Producer"] = PRODUCER_NAME
+        pdf.docinfo["/Producer"] = String(PRODUCER_NAME)
 
         tmp_path = output_path + ".tmp.pdf"
         pdf.save(tmp_path, **save_kwargs)
@@ -72,8 +79,8 @@ def process_pdf(
     size_mb = get_size_mb(tmp_path)
     print(f"[INFO] Size after initial compression: {size_mb:.2f} MB")
 
-    for quality in [75, 60, 45, 30]:
-        for scale in [1.0, 0.9, 0.75, 0.5]:
+    for quality in COMPRESS_IMAGE_QUALITIES:
+        for scale in COMPRESS_IMAGE_SCALES:
             if size_mb <= target_max_mb:
                 break
             print(f"[INFO] Over {target_max_mb} MB — re-compressing images at quality={quality}, scale={scale}...")
@@ -90,10 +97,10 @@ def process_pdf(
         )
 
     with Pdf.open(tmp_path) as pdf_final:
-        pdf_final.pdf_version = "1.4"
+        pdf_final.pdf_version = COMPRESS_PDF_VERSION
         with pdf_final.open_metadata(set_pikepdf_as_editor=False) as meta:
-            meta["pdf:Producer"] = "KWSP"
-        pdf_final.docinfo["/Producer"] = String("KWSP")
+            meta["pdf:Producer"] = PRODUCER_NAME
+        pdf_final.docinfo["/Producer"] = String(PRODUCER_NAME)
 
         encryption = None
         if user_password or owner_password:
@@ -113,7 +120,7 @@ def process_pdf(
         pdf_final.save(output_path, encryption=encryption, **save_kwargs)
 
     try:
-        ensure_pdf_header(output_path, "1.4")
+        ensure_pdf_header(output_path, COMPRESS_PDF_VERSION)
     except Exception:
         pass
 
@@ -122,8 +129,8 @@ def process_pdf(
 
     final_size = get_size_mb(output_path)
     print(f"\n[DONE] Saved: {output_path}")
-    print(f"       PDF Version : 1.4")
-    print(f"       Producer    : KWSP")
+    print(f"       PDF Version : {COMPRESS_PDF_VERSION}")
+    print(f"       Producer    : {PRODUCER_NAME}")
     print(f"       File Size   : {final_size:.2f} MB")
     print(f"       Locked      : {'Yes' if user_password else 'No'}")
 

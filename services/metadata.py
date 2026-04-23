@@ -3,10 +3,17 @@ import sys
 import glob
 from datetime import datetime
 
+import pikepdf
 from pikepdf import Pdf, String
 
 from .utils import get_size_mb, ensure_pdf_header, load_metadata_cache
-
+from .constants import (
+    BANK_STATEMENT_PDF_VERSION,
+    EPF_STATEMENT_PDF_VERSION,
+    COMPRESS_PDF_VERSION,
+    PRODUCER_NAME,
+    ICN_FIELDS_TO_STRIP,
+)
 
 def _pdf_date_string(dt: datetime) -> str:
     """Return a PDF docinfo date string (D:YYYYMMDDHHmmSS+HH'mm') for the given datetime."""
@@ -40,11 +47,11 @@ def apply_properties(input_path: str, output_path: str, password: str = "") -> N
     with Pdf.open(input_path, password=password) as pdf:
         try:
             with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
-                meta["pdf:Producer"] = "KWSP"
+                meta["pdf:Producer"] = PRODUCER_NAME
         except Exception:
             pass
 
-        pdf.docinfo["/Producer"] = String("KWSP")
+        pdf.docinfo["/Producer"] = String(PRODUCER_NAME)
 
         pdf.save(
             output_path,
@@ -55,7 +62,7 @@ def apply_properties(input_path: str, output_path: str, password: str = "") -> N
         )
 
     try:
-        ensure_pdf_header(output_path, "1.4")
+        ensure_pdf_header(output_path, COMPRESS_PDF_VERSION)
     except Exception:
         pass
 
@@ -74,15 +81,15 @@ def patch_metadata_only(input_pdf: str, output_pdf: str, password: str = "") -> 
     with Pdf.open(input_pdf, password=password) as pdf:
         try:
             with pdf.open_metadata(set_pikepdf_as_editor=False) as meta:
-                meta["pdf:Producer"] = "KWSP"
+                meta["pdf:Producer"] = PRODUCER_NAME
         except Exception:
             pass
 
-        pdf.docinfo["/Producer"] = String("KWSP")
+        pdf.docinfo["/Producer"] = String(PRODUCER_NAME)
         pdf.save(output_pdf, encryption=None)
 
     try:
-        ensure_pdf_header(output_pdf, "1.4")
+        ensure_pdf_header(output_pdf, EPF_STATEMENT_PDF_VERSION)
     except Exception:
         pass
 
@@ -91,8 +98,8 @@ def patch_metadata_only(input_pdf: str, output_pdf: str, password: str = "") -> 
     print(f"       File Size : {final_size:.2f} MB")
 
 
-def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", original_producer: str = None, today_dates: bool = False, preserve_docinfo: dict = None) -> None:
-    """Patch PDF version to 1.4. Restores original_producer if provided, else keeps current. No recompression."""
+def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", original_producer: str = None, today_dates: bool = False, output_password: str = "") -> None:
+    """Patch PDF to BANK_STATEMENT_PDF_VERSION. Restores original_producer if provided, else keeps current. No recompression."""
     if not os.path.isfile(input_pdf):
         raise FileNotFoundError(f"Input file not found: {input_pdf}")
 
@@ -128,9 +135,6 @@ def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", orig
                 if today_xmp_date:
                     meta["{http://ns.adobe.com/xap/1.0/}CreateDate"] = today_xmp_date
                     meta["{http://ns.adobe.com/xap/1.0/}ModifyDate"] = today_xmp_date
-                # Restore Creator to XMP if present in the preserved fields
-                if preserve_docinfo and "/Creator" in preserve_docinfo:
-                    meta["{http://ns.adobe.com/xap/1.0/}CreatorTool"] = preserve_docinfo["/Creator"]
         except Exception as xmp_err:
             print(f"[WARNING] XMP metadata write failed: {xmp_err}", file=sys.stderr)
 
@@ -142,22 +146,37 @@ def patch_version_only(input_pdf: str, output_pdf: str, password: str = "", orig
             pdf.docinfo["/ModDate"] = String(today_pdf_date)
             print(f"[INFO] Dates set to: {now.strftime('%Y-%m-%d %H:%M:%S %z')}")
 
-        # Restore preserved docinfo fields (Creator, ICNAppName, ICNAppPlatform, ICNAppVersion, etc.)
-        if preserve_docinfo:
-            restored = []
-            for key, value in preserve_docinfo.items():
-                try:
-                    pdf.docinfo[key] = String(value)
-                    restored.append(key.lstrip("/"))
-                except Exception as e:
-                    print(f"[WARNING] Could not restore docinfo key {key}: {e}", file=sys.stderr)
-            if restored:
-                print(f"[INFO] Preserved fields: {', '.join(restored)}")
+        # Strip Infix Pro custom fields
+        removed = []
+        for field in ICN_FIELDS_TO_STRIP:
+            if field in pdf.docinfo:
+                del pdf.docinfo[field]
+                removed.append(field.lstrip("/"))
+        if removed:
+            print(f"[INFO] Removed custom fields: {', '.join(removed)}")
 
-        pdf.save(output_pdf, encryption=None)
+        if output_password:
+            enc = pikepdf.Encryption(
+                user="",
+                owner=output_password,
+                allow=pikepdf.Permissions(
+                    accessibility=True,
+                    extract=True,
+                    modify_annotation=True,
+                    modify_assembly=True,
+                    modify_form=True,
+                    modify_other=True,
+                    print_highres=True,
+                    print_lowres=True,
+                ),
+            )
+            pdf.save(output_pdf, encryption=enc)
+            print(f"[INFO] Permission password set; no content restrictions applied")
+        else:
+            pdf.save(output_pdf, encryption=None)
 
     try:
-        ensure_pdf_header(output_pdf, "1.4")
+        ensure_pdf_header(output_pdf, BANK_STATEMENT_PDF_VERSION)
     except Exception:
         pass
 
@@ -191,8 +210,8 @@ def patch_metadata_folder(input_dir: str, output_dir: str, password: str = "") -
     return count
 
 
-def patch_version_folder(input_dir: str, output_dir: str, password: str = "", today_dates: bool = False, preserve_custom_info: bool = False) -> int:
-    """Patch PDF version to 1.4 for all PDFs, restoring original producer from cache."""
+def patch_version_folder(input_dir: str, output_dir: str, password: str = "", today_dates: bool = False, output_password: str = "") -> int:
+    """Patch PDF to BANK_STATEMENT_PDF_VERSION for all PDFs, restoring original producer from cache."""
     if not os.path.isdir(input_dir):
         print(f"[ERROR] Input directory not found: {input_dir}", file=sys.stderr)
         return 0
@@ -216,20 +235,12 @@ def patch_version_folder(input_dir: str, output_dir: str, password: str = "", to
                     stem = stem[: -len(suffix)]
                     break
 
-            entry = cache.get(stem, {})
-            if isinstance(entry, str):  # old cache format
-                original_producer = entry or None
-                docinfo_to_restore = {}
-            else:
-                original_producer = entry.get("producer") or None
-                docinfo_to_restore = entry.get("docinfo", {}) if preserve_custom_info else {}
+            original_producer = cache.get(stem) or None
 
             if original_producer:
                 print(f"[INFO] Restoring producer from cache: '{original_producer}' for {basename}")
-            if docinfo_to_restore:
-                print(f"[INFO] Restoring {len(docinfo_to_restore)} custom field(s) from cache for {basename}")
 
-            patch_version_only(pdf_path, output_path, password=password, original_producer=original_producer, today_dates=today_dates, preserve_docinfo=docinfo_to_restore)
+            patch_version_only(pdf_path, output_path, password=password, original_producer=original_producer, today_dates=today_dates, output_password=output_password)
             count += 1
         except Exception as e:
             print(f"[ERROR] Failed to patch {pdf_path}: {e}", file=sys.stderr)

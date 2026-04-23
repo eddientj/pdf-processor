@@ -2,11 +2,13 @@ PDF Processor
 =============
 
 A Python tool for batch unlocking, compressing (via iLovePDF API), and applying metadata to PDF files.
+
 - Unlock encrypted PDFs in bulk
 - Compress via iLovePDF API — same quality as the website, fully automated
-- Patch PDF version to 1.4 while restoring the original producer
-- Preserve original custom metadata (Creator, ICNAppName, ICNAppPlatform, ICNAppVersion, etc.)
-- Apply KWSP producer metadata without additional compression
+- Patch PDF version to 1.7 while restoring the original producer (Bank Statements)
+- Patch PDF version to 1.4 while applying KWSP producer metadata (EPF Statements)
+- Strip Infix Pro custom fields (ICNAppName, ICNAppPlatform, ICNAppVersion) automatically
+- Encrypt output PDFs with a password and restricted permissions
 - Clean up temporary files with a single command
 
 Prerequisites
@@ -25,54 +27,41 @@ Prerequisites
      ILOVEPDF_SECRET_KEY=your_secret_key_here
      ```
 
-Workflow: Unlock → Compress → Restore Metadata
------------------------------------------------
+Workflow
+--------
 
-### Step 1: Unlock all PDFs
-Removes encryption and snapshots the original metadata of each file to `.producer_cache.json`:
-- Producer string
-- All docinfo fields: `Creator`, `ICNAppName`, `ICNAppPlatform`, `ICNAppVersion`, and any other custom entries
-
+### Step 1 — Unlock all PDFs
+Removes encryption and snapshots each file's original producer to `.producer_cache.json`:
 ```powershell
 python pdfprocessor.py Input "To Compress" --unlock-folder
 ```
 
-### Step 2: Compress via iLovePDF API
+### Step 2 — Compress via iLovePDF API
 Sends each PDF to the iLovePDF API and downloads the compressed result to `Compressed/`:
 ```powershell
 python pdfprocessor.py "To Compress" Compressed --compress-folder
 ```
-Free tier: 250 tasks/month. Files are named with a `_compress` suffix by iLovePDF.
+Free tier: 250 tasks/month. iLovePDF appends a `_compress` suffix to output filenames.
 
-### Step 3a: Patch Version + Restore Original Producer (recommended)
-Patches PDF version to 1.4 and restores the original producer from Step 1's cache:
-```powershell
-python pdfprocessor.py Compressed Output --patch-version-folder
-```
-Filename matching strips `_compress`/`_compressed` suffix automatically.
+---
 
-Add `--today-dates` to stamp the current date and time as the PDF's Created and Modified dates (visible in Adobe Acrobat under File → Properties → Description):
+### Step 3a — Bank Statements
+Patches version to 1.7, restores the original producer, stamps today's date, and encrypts the
+output — with only page extraction restricted (printing, editing, and document assembly are all allowed).
+The output password is configured via `BANK_STATEMENT_OUTPUT_PASSWORD` in `services/constants.py`:
 ```powershell
 python pdfprocessor.py Compressed Output --patch-version-folder --today-dates
 ```
 
-Add `--preserve-custom-information` to restore the original `Creator` and all custom docinfo fields (e.g. `ICNAppName`, `ICNAppPlatform`, `ICNAppVersion`) that were snapshotted during Step 1:
-```powershell
-python pdfprocessor.py Compressed Output --patch-version-folder --today-dates --preserve-custom-information
-```
-
-All three flags can be combined freely:
-```powershell
-python pdfprocessor.py Compressed Output --patch-version-folder --today-dates --preserve-custom-information
-```
-
-### Step 3b: Apply KWSP Metadata Instead
-Overrides the producer with `KWSP` and patches the version — use if you want KWSP branding:
+### Step 3b — EPF Statements
+Applies KWSP producer metadata only (PDF 1.4), with no recompression and no encryption:
 ```powershell
 python pdfprocessor.py Compressed Output --patch-metadata-folder
 ```
 
-### Step 4: Clean Up (Optional)
+---
+
+### Step 4 — Clean Up (Optional)
 Clears `Output/`, `To Compress/`, and `Compressed/` folders (preserves `Input/`):
 ```powershell
 python pdfprocessor.py --flush
@@ -91,11 +80,6 @@ python pdfprocessor.py Input\locked.pdf Output\unlocked.pdf --unlock -u "passwor
 python pdfprocessor.py Input\example.pdf Output\final_example.pdf --apply-properties
 ```
 
-**Apply metadata only (minimal recompression):**
-```powershell
-python pdfprocessor.py Compressed\compressed.pdf Output\final.pdf --patch-metadata-folder
-```
-
 Folder Structure
 ----------------
 ```
@@ -106,21 +90,24 @@ pdf-processer/
 ├── Output/                   # Final output PDFs
 ├── .env                      # API keys (not committed to git)
 ├── .env.example              # Template for .env
-├── .producer_cache.json      # Auto-generated: maps filenames to original producer + custom metadata
+├── .producer_cache.json      # Auto-generated: maps filenames to original producer string
 ├── .temp_file_cache          # Temporary file cache (not committed to git)
 ├── pdfprocessor.py           # Main script
 ├── requirement.txt           # Python dependencies
+├── services/constants.py     # Configurable variables (PDF versions, password, producer, etc.)
 ├── .gitignore                # Excludes PDFs and secrets from version control
 └── README.md                 # This file
 ```
 
 Notes
 -----
-- **Metadata cache:** `--unlock-folder` saves `.producer_cache.json` with the original producer string plus all custom docinfo fields (`Creator`, `ICNAppName`, `ICNAppPlatform`, `ICNAppVersion`, etc.). The cache format is automatically migrated if you have an older single-producer cache file.
-- **Custom metadata preservation:** `--preserve-custom-information` (used with `--patch-version-folder`) restores all cached docinfo fields after iLovePDF compression overwrites them. `Creator` is also written to the XMP stream (`xmp:CreatorTool`).
-- **PDF Version:** The tool ensures files present as PDF 1.4 by disabling object streams (a PDF 1.5 feature).
-- **Minimal metadata patching:** Both `--patch-version-folder` and `--patch-metadata-folder` apply changes without recompressing, preserving iLovePDF compression gains.
-- **Date stamping:** `--today-dates` writes the current local date and time (including timezone) to both the PDF DocInfo and XMP metadata streams so that Adobe Acrobat displays the correct Created/Modified dates.
+- **Configurable constants:** PDF versions, output password, producer name, compression settings, and flush folders are all defined in `services/constants.py` — edit that file to change behaviour without touching the processing code.
+- **Metadata cache:** `--unlock-folder` saves `.producer_cache.json` with the original producer string for each file. `--patch-version-folder` uses this to restore the correct producer after iLovePDF compression overwrites it.
+- **Filename matching:** `--patch-version-folder` automatically strips the `_compress`/`_compressed` suffix when looking up the producer cache.
+- **ICN field stripping:** `--patch-version-folder` removes `ICNAppName`, `ICNAppPlatform`, and `ICNAppVersion` from the PDF Info dictionary (Infix Pro fields not visible in the final output).
+- **PDF versions:** Bank Statements are written as PDF 1.7; EPF Statements are written as PDF 1.4. Both versions are set via `services/constants.py`.
+- **Date stamping:** `--today-dates` writes the current local date and time (with timezone) to both DocInfo and XMP metadata, so Adobe Acrobat shows the correct Created/Modified dates.
+- **Encryption:** Bank Statement outputs are encrypted using `BANK_STATEMENT_OUTPUT_PASSWORD` from `services/constants.py`. Only page extraction is restricted — printing, editing, form-filling, and document assembly remain fully allowed.
+- **Minimal recompression:** Both `--patch-version-folder` and `--patch-metadata-folder` apply changes without recompressing, preserving iLovePDF compression gains.
 - **iLovePDF free tier:** 250 tasks/month. Each file = 1 task. See https://developer.ilovepdf.com/pricing for details.
-- **Encryption:** Single-file unlock mode supports password-protected PDFs. Batch unlock (`--unlock-folder`) assumes no password; use single-file mode for encrypted batches.
 - **.gitignore:** PDF files, `.env`, `.producer_cache.json`, and `.temp_file_cache` are excluded from version control.

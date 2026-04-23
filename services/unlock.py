@@ -58,9 +58,6 @@ def unlock_folder(input_dir: str, output_dir: str, password: str = "") -> int:
         print(f"[WARNING] No PDF files found in {input_dir}")
         return 0
 
-    # Keys we handle separately — don't snapshot into the preserved-fields dict
-    _SKIP_DOCINFO = {"/Producer", "/CreationDate", "/ModDate"}
-
     cache = load_metadata_cache()
     count = 0
     for pdf_path in sorted(pdf_files):
@@ -80,18 +77,8 @@ def unlock_folder(input_dir: str, output_dir: str, password: str = "") -> int:
                     except Exception:
                         pass
 
-                # Snapshot every docinfo field except the ones we manage elsewhere
-                extra_docinfo = {}
-                for key in src.docinfo.keys():
-                    str_key = str(key)
-                    if str_key not in _SKIP_DOCINFO:
-                        try:
-                            extra_docinfo[str_key] = str(src.docinfo[key])
-                        except Exception:
-                            pass
-
                 stem = os.path.splitext(basename)[0]
-                cache[stem] = {"producer": producer or "", "docinfo": extra_docinfo}
+                cache[stem] = producer or ""
 
             unlock_pdf(pdf_path, output_path, password=password)
             count += 1

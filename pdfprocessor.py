@@ -24,6 +24,7 @@ from services.unlock import unlock_pdf, unlock_folder
 from services.compress import process_pdf, compress_folder_ilovepdf
 from services.metadata import apply_properties, patch_metadata_folder, patch_version_folder
 from services.flush import flush_all_except_input
+from services.constants import BANK_STATEMENT_OUTPUT_PASSWORD
 
 
 def main():
@@ -40,9 +41,9 @@ def main():
     parser.add_argument("--unlock-folder", action="store_true", help="Unlock all PDFs in input folder")
     parser.add_argument("--compress-folder", action="store_true", help="Compress all PDFs via iLovePDF API")
     parser.add_argument("--patch-metadata-folder", action="store_true", help="Apply KWSP producer to all PDFs in input folder")
-    parser.add_argument("--patch-version-folder", action="store_true", help="Patch version to 1.4, restore original producer for all PDFs in input folder")
+    parser.add_argument("--patch-version-folder", action="store_true", help="Patch version to 1.7, restore original producer for all PDFs in input folder")
     parser.add_argument("--today-dates", action="store_true", help="Set CreationDate and ModDate to today's date (use with --patch-version-folder)")
-    parser.add_argument("--preserve-custom-information", action="store_true", help="Restore original Creator and custom docinfo fields (e.g. ICNAppName, ICNAppPlatform, ICNAppVersion) from cache (use with --patch-version-folder)")
+    parser.add_argument("--output-password", default=BANK_STATEMENT_OUTPUT_PASSWORD, help="Encrypt output PDF with this password, restricting page extraction only (use with --patch-version-folder)")
     parser.add_argument("--flush", action="store_true", help="Clear Output, 'To Compress', and 'Compressed' folders")
     args = parser.parse_args()
 
@@ -71,7 +72,7 @@ def main():
             count = patch_metadata_folder(args.input, args.output, password=args.user_password)
             print(f"[SUMMARY] Patched metadata for {count} PDFs from {args.input} to {args.output}")
         elif args.patch_version_folder:
-            count = patch_version_folder(args.input, args.output, password=args.user_password, today_dates=args.today_dates, preserve_custom_info=args.preserve_custom_information)
+            count = patch_version_folder(args.input, args.output, password=args.user_password, today_dates=args.today_dates, output_password=args.output_password)
             print(f"[SUMMARY] Patched version for {count} PDFs from {args.input} to {args.output}")
         else:
             process_pdf(

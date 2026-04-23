@@ -2,10 +2,12 @@ import os
 import sys
 import glob
 
+from .constants import FLUSH_FOLDERS
+
 
 def flush_all_except_input(base_dir: str = ".") -> int:
     """Delete all PDF files from Output, 'To Compress', and 'Compressed' folders."""
-    folders_to_clear = ["Output", "To Compress", "Compressed"]
+    folders_to_clear = FLUSH_FOLDERS
     deleted_count = 0
 
     for folder in folders_to_clear:
